@@ -51,34 +51,18 @@ yarn-error.log*
 next-env.d.ts
 
 # drowning-detection specific
-backend/__pycache__/
-backend/*.pyc
-.venv/
-venv/
-frontend/.next/
+drowning-detection/backend/models/*.pt
+drowning-detection/backend/models/*.pth
+drowning-detection/backend/models/*.h5
+drowning-detection/backend/models/*.onnx
+drowning-detection/backend/__pycache__/
+drowning-detection/backend/*.pyc
+drowning-detection/frontend/node_modules/
+drowning-detection/frontend/.next/
+drowning-detection/frontend/build/
 
-# dependencies
-/node_modules
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# general ML model files
+backend/models/*.pt
+backend/models/*.pth
+backend/models/*.h5
+backend/models/*.onnx
