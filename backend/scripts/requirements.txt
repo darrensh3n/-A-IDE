@@ -6,9 +6,9 @@ python-multipart==0.0.12
 # Computer vision and ML
 ultralytics==8.3.221
 opencv-python==4.10.0.84
-numpy==2.0.0
+numpy>=2.2.0
 torch==2.9.0
-torchvision==0.21.0
+torchvision==0.24.0
 
 # Image processing
 Pillow==11.0.0
