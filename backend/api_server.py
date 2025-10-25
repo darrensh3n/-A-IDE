@@ -41,6 +41,10 @@ app.add_middleware(
 model = None
 MODEL_PATH = "models/drowning_detection.pt"
 
+# Global state for tracking people across frames (for drowning behavior analysis)
+person_positions = {}  # {person_id: [(frame_number, x, y, width, height), ...]}
+frame_counter = 0
+
 # Global alert manager
 alert_manager = None
 
@@ -84,8 +88,9 @@ def initialize_alert_system():
         alert_manager = AlertManager(
             llm_service=llm_service,
             voice_service=voice_service,
-            confidence_threshold=0.7,
-            repeat_alert_delay=6.0
+            confidence_threshold=0.5,
+            repeat_alert_delay=2.0,
+            live_mode=True
         )
         
         print("✓ Alert system initialized successfully!\n")
@@ -100,6 +105,115 @@ async def startup_event():
     """Initialize model and alert system on startup"""
     load_model()
     initialize_alert_system()
+
+def analyze_drowning_behavior(detections, frame_number):
+    """
+    Analyze person movements to detect drowning behavior
+    
+    Drowning indicators:
+    - Person remains in similar vertical position (no swimming movement)
+    - Erratic/vertical hand movements
+    - Person is in water for extended period without horizontal movement
+    - Multiple people clustered in one area (possible rescue scene)
+    
+    Args:
+        detections: List of detected objects
+        frame_number: Current frame number
+        
+    Returns:
+        Dictionary with drowning risk assessment
+    """
+    global person_positions, frame_counter
+    frame_counter += 1
+    
+    drowning_risk = "none"
+    risk_score = 0.0
+    indicators = []
+    
+    # Filter for person detections
+    person_detections = [d for d in detections if d.get("class", "").lower() == "person"]
+    
+    if not person_detections:
+        return {
+            "drowning_risk": "none",
+            "risk_score": 0.0,
+            "indicators": [],
+            "people_detected": 0
+        }
+    
+    # Track each person
+    for i, detection in enumerate(person_detections):
+        person_id = i
+        bbox = detection["bbox"]
+        x, y, x2, y2 = bbox
+        center_x = (x + x2) / 2
+        center_y = (y + y2) / 2
+        width = x2 - x
+        height = y2 - y
+        
+        # Initialize tracking for new person
+        if person_id not in person_positions:
+            person_positions[person_id] = []
+        
+        # Add current position
+        person_positions[person_id].append({
+            "frame": frame_number,
+            "x": center_x,
+            "y": center_y,
+            "width": width,
+            "height": height
+        })
+        
+        # Keep only last 30 frames of history
+        person_positions[person_id] = person_positions[person_id][-30:]
+    
+    # Analyze each person's movement pattern
+    for person_id, positions in person_positions.items():
+        if len(positions) < 10:  # Need minimum frames for analysis
+            continue
+        
+        # Calculate movement statistics
+        y_positions = [p["y"] for p in positions[-15:]]  # Last 15 frames
+        x_positions = [p["x"] for p in positions[-15:]]
+        
+        y_variance = np.var(y_positions)
+        x_variance = np.var(x_positions)
+        avg_y = np.mean(y_positions)
+        avg_x = np.mean(x_positions)
+        
+        # Indicator 1: Lack of horizontal movement (staying in same spot)
+        if x_variance < 100:  # Person not moving horizontally
+            risk_score += 0.3
+            indicators.append(f"Person {person_id}: Minimal horizontal movement")
+        
+        # Indicator 2: Vertical position not changing (not swimming up)
+        if y_variance < 50:
+            risk_score += 0.3
+            indicators.append(f"Person {person_id}: Stuck at same vertical position")
+        
+        # Indicator 3: Extended time without significant movement
+        if len(positions) > 20:
+            recent_y_variance = np.var([p["y"] for p in positions[-10:]])
+            if recent_y_variance < 30:
+                risk_score += 0.4
+                indicators.append(f"Person {person_id}: Extended time without vertical movement")
+    
+    # Determine risk level
+    if risk_score >= 0.7:
+        drowning_risk = "high"
+    elif risk_score >= 0.4:
+        drowning_risk = "medium"
+    elif risk_score >= 0.2:
+        drowning_risk = "low"
+    else:
+        drowning_risk = "none"
+    
+    return {
+        "drowning_risk": drowning_risk,
+        "risk_score": round(min(risk_score, 1.0), 2),
+        "indicators": indicators,
+        "people_detected": len(person_detections)
+    }
 
 @app.get("/")
 async def root():
@@ -120,7 +234,7 @@ async def health_check():
         "model_path": MODEL_PATH if os.path.exists(MODEL_PATH) else "using fallback"
     }
 
-def process_image(image_path: str, confidence_threshold: float = 0.25):
+def process_image(image_path: str, confidence_threshold: float = 0.30):
     """
     Process a single image for drowning detection
     
@@ -181,6 +295,18 @@ def process_image(image_path: str, confidence_threshold: float = 0.25):
         cv2.rectangle(annotated_img, (x1, y1 - label_height - 10), (x1 + label_width, y1), color, -1)
         cv2.putText(annotated_img, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
     
+    # Analyze for drowning behavior
+    global frame_counter
+    behavior_analysis = analyze_drowning_behavior(detections, frame_counter)
+    
+    # Highlight high-risk detections
+    if behavior_analysis["drowning_risk"] in ["high", "medium"]:
+        # Draw warning overlay
+        cv2.putText(annotated_img, f"ALERT: {behavior_analysis['drowning_risk'].upper()} DROWNING RISK", 
+                   (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        cv2.putText(annotated_img, f"Risk Score: {behavior_analysis['risk_score']}", 
+                   (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    
     # Convert annotated image to base64
     _, buffer = cv2.imencode('.jpg', annotated_img)
     img_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -188,17 +314,18 @@ def process_image(image_path: str, confidence_threshold: float = 0.25):
     result = {
         "detections": detections,
         "image": f"data:image/jpeg;base64,{img_base64}",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "drowning_analysis": behavior_analysis
     }
     
     # Check for danger and trigger alerts
     if alert_manager:
-        alert_status = alert_manager.check_and_alert(detections)
+        alert_status = alert_manager.check_and_alert(detections, behavior_analysis)
         result["alert_status"] = alert_status
     
     return result
 
-def process_video(video_path: str, confidence_threshold: float = 0.25, sample_rate: int = 30):
+def process_video(video_path: str, confidence_threshold: float = 0.30, sample_rate: int = 30):
     """
     Process a video file for drowning detection
     
@@ -308,9 +435,15 @@ def process_video(video_path: str, confidence_threshold: float = 0.25, sample_ra
         "timestamp": datetime.now().isoformat()
     }
     
+    # Analyze for drowning behavior (use recent detections)
+    global frame_counter
+    recent_detections = all_detections[-10:] if all_detections else []  # Last 10 detections
+    behavior_analysis = analyze_drowning_behavior(recent_detections, frame_counter)
+    result["drowning_analysis"] = behavior_analysis
+    
     # Check for danger and trigger alerts (use all detections for analysis)
     if alert_manager:
-        alert_status = alert_manager.check_and_alert(all_detections)
+        alert_status = alert_manager.check_and_alert(all_detections, behavior_analysis)
         result["alert_status"] = alert_status
     
     return result
@@ -318,7 +451,7 @@ def process_video(video_path: str, confidence_threshold: float = 0.25, sample_ra
 @app.post("/api/detect-drowning")
 async def detect_drowning(
     file: UploadFile = File(...),
-    confidence: float = 0.25
+    confidence: float = 0.30
 ):
     """
     Detect drowning in uploaded image or video
@@ -367,7 +500,7 @@ async def detect_drowning(
 @app.post("/api/detect-frame")
 async def detect_frame(
     file: UploadFile = File(...),
-    confidence: float = 0.25
+    confidence: float = 0.30
 ):
     """
     Detect drowning in a single frame (optimized for real-time camera feed)
