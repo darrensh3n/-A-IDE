@@ -49,3 +49,6 @@ backend/models/*.pt
 backend/models/*.pth
 backend/models/*.h5
 backend/models/*.onnx
+
+# Audio alert files
+backend/audio_alerts/

@@ -16,6 +16,15 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import os
+from dotenv import load_dotenv
+
+# Import alert services
+from services.llm_service import LLMService
+from services.voice_alert_service import VoiceAlertService
+from services.alert_manager import AlertManager
+
+# Load environment variables
+load_dotenv()
 
 app = FastAPI(title="Drowning Detection API", version="1.0.0")
 
@@ -31,6 +40,9 @@ app.add_middleware(
 # Global model variable
 model = None
 MODEL_PATH = "models/drowning_detection.pt"
+
+# Global alert manager
+alert_manager = None
 
 def load_model():
     """Load YOLOv8 model for drowning detection"""
@@ -48,10 +60,46 @@ def load_model():
         print(f"Error loading model: {e}")
         raise
 
+def initialize_alert_system():
+    """Initialize the alert system with Fish Audio and Groq"""
+    global alert_manager
+    
+    try:
+        # Get API keys from environment
+        fish_key = os.getenv("FISH_AUDIO_API_KEY")
+        groq_key = os.getenv("GROQ_API_KEY")
+        
+        if not fish_key or fish_key == "your_fish_audio_api_key_here":
+            print("⚠️  FISH_AUDIO_API_KEY not set - Alert system disabled")
+            return
+        
+        if not groq_key or groq_key == "your_groq_api_key_here":
+            print("⚠️  GROQ_API_KEY not set - Alert system disabled")
+            return
+        
+        # Initialize services
+        print("\nInitializing alert system...")
+        llm_service = LLMService(groq_key)
+        voice_service = VoiceAlertService(fish_key, output_dir="audio_alerts")
+        alert_manager = AlertManager(
+            llm_service=llm_service,
+            voice_service=voice_service,
+            confidence_threshold=0.7,
+            repeat_alert_delay=6.0
+        )
+        
+        print("✓ Alert system initialized successfully!\n")
+        
+    except Exception as e:
+        print(f"✗ Failed to initialize alert system: {e}")
+        print("   Detection will continue without alerts\n")
+        alert_manager = None
+
 @app.on_event("startup")
 async def startup_event():
-    """Initialize model on startup"""
+    """Initialize model and alert system on startup"""
     load_model()
+    initialize_alert_system()
 
 @app.get("/")
 async def root():
@@ -137,11 +185,18 @@ def process_image(image_path: str, confidence_threshold: float = 0.25):
     _, buffer = cv2.imencode('.jpg', annotated_img)
     img_base64 = base64.b64encode(buffer).decode('utf-8')
     
-    return {
+    result = {
         "detections": detections,
         "image": f"data:image/jpeg;base64,{img_base64}",
         "timestamp": datetime.now().isoformat()
     }
+    
+    # Check for danger and trigger alerts
+    if alert_manager:
+        alert_status = alert_manager.check_and_alert(detections)
+        result["alert_status"] = alert_status
+    
+    return result
 
 def process_video(video_path: str, confidence_threshold: float = 0.25, sample_rate: int = 30):
     """
@@ -244,7 +299,7 @@ def process_video(video_path: str, confidence_threshold: float = 0.25, sample_ra
         detection_summary[class_name]["avg_confidence"] = sum(confidences) / len(confidences)
         del detection_summary[class_name]["confidences"]
     
-    return {
+    result = {
         "detections": all_detections[:10],  # Return first 10 detections
         "summary": detection_summary,
         "total_frames": frame_count,
@@ -252,6 +307,13 @@ def process_video(video_path: str, confidence_threshold: float = 0.25, sample_ra
         "image": f"data:image/jpeg;base64,{img_base64}" if img_base64 else None,
         "timestamp": datetime.now().isoformat()
     }
+    
+    # Check for danger and trigger alerts (use all detections for analysis)
+    if alert_manager:
+        alert_status = alert_manager.check_and_alert(all_detections)
+        result["alert_status"] = alert_status
+    
+    return result
 
 @app.post("/api/detect-drowning")
 async def detect_drowning(
@@ -318,6 +380,41 @@ async def detect_frame(
         Detection results with bounding boxes
     """
     return await detect_drowning(file, confidence)
+
+@app.get("/api/alert-status")
+async def get_alert_status():
+    """
+    Get current alert system status
+    
+    Returns:
+        Alert status information
+    """
+    if not alert_manager:
+        return {
+            "enabled": False,
+            "message": "Alert system not initialized"
+        }
+    
+    status = alert_manager.get_status()
+    status["enabled"] = True
+    return status
+
+@app.post("/api/alert-reset")
+async def reset_alert():
+    """
+    Manually reset alert state
+    
+    Returns:
+        Confirmation message
+    """
+    if not alert_manager:
+        raise HTTPException(status_code=503, detail="Alert system not initialized")
+    
+    alert_manager.reset()
+    return {
+        "message": "Alert state reset successfully",
+        "timestamp": datetime.now().isoformat()
+    }
 
 if __name__ == "__main__":
     print("=" * 60)
