@@ -57,9 +57,14 @@ drowning-detection/backend/models/*.h5
 drowning-detection/backend/models/*.onnx
 drowning-detection/backend/__pycache__/
 drowning-detection/backend/*.pyc
+drowning-detection/backend/*.pyo
+drowning-detection/backend/**/__pycache__/
 drowning-detection/frontend/node_modules/
 drowning-detection/frontend/.next/
 drowning-detection/frontend/build/
+drowning-detection/frontend/out/
+drowning-detection/.DS_Store
+drowning-detection/**/.DS_Store
 
 # general ML model files
 backend/models/*.pt
