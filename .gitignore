@@ -49,3 +49,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# drowning-detection specific
+drowning-detection/backend/models/*.pt
+drowning-detection/backend/__pycache__/
+drowning-detection/backend/*.pyc
+drowning-detection/.venv/
+drowning-detection/venv/
+drowning-detection/frontend/node_modules/
+drowning-detection/frontend/.next/
