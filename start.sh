@@ -10,7 +10,35 @@ echo "=========================================="
 start_backend() {
     echo "Starting FastAPI backend..."
     cd backend
-    python3 api_server.py &
+    
+    # Check if Python 3.13 is available
+    if ! command -v python3.13 &> /dev/null; then
+        echo "Error: Python 3.13 is not installed or not in PATH"
+        echo "Please install Python 3.13 to use this backend"
+        exit 1
+    fi
+    
+    # Check if venv exists, create if not
+    if [ ! -d ".venv" ]; then
+        echo "Virtual environment not found. Creating .venv with Python 3.13..."
+        python3.13 -m venv .venv
+        echo "Virtual environment created."
+    fi
+    
+    # Activate virtual environment
+    source .venv/bin/activate
+    
+    # Check if requirements are installed
+    if ! python -c "import fastapi" 2>/dev/null; then
+        echo "Installing Python dependencies..."
+        pip install -q --upgrade pip
+        pip install -q -r requirements.txt
+        pip install -q -r scripts/requirements.txt
+        echo "Dependencies installed."
+    fi
+    
+    # Start the backend server
+    python api_server.py &
     BACKEND_PID=$!
     echo "Backend started with PID: $BACKEND_PID"
     cd ..

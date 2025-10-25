@@ -1,6 +1,10 @@
 """
 Script to download and setup YOLOv8 model for drowning detection
-Run with: python scripts/setup_model.py
+
+Usage:
+    - Make sure the virtual environment is activated: source .venv/bin/activate
+    - Run from the backend directory: python scripts/setup_model.py
+    - Or use the main startup script from root: ../start.sh
 """
 
 import os

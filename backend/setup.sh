@@ -7,19 +7,20 @@ echo "=========================================="
 echo "Backend Setup Script"
 echo "=========================================="
 
-# Check if Python 3 is available
-if ! command -v python3 &> /dev/null; then
-    echo "Error: Python 3 is not installed or not in PATH"
+# Check if Python 3.13 is available
+if ! command -v python3.13 &> /dev/null; then
+    echo "Error: Python 3.13 is not installed or not in PATH"
+    echo "Please install Python 3.13 to use this backend"
     exit 1
 fi
 
-echo "Python version: $(python3 --version)"
+echo "Python version: $(python3.13 --version)"
 
 # Create virtual environment if it doesn't exist
 if [ ! -d ".venv" ]; then
     echo ""
-    echo "Creating virtual environment..."
-    python3 -m venv .venv
+    echo "Creating virtual environment with Python 3.13..."
+    python3.13 -m venv .venv
     echo "✓ Virtual environment created at .venv/"
 else
     echo ""
