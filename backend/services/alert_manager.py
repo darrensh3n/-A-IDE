@@ -27,8 +27,9 @@ class AlertManager:
         self,
         llm_service: LLMService,
         voice_service: VoiceAlertService,
-        confidence_threshold: float = 0.7,
-        repeat_alert_delay: float = 6.0
+        confidence_threshold: float = 0.5,
+        repeat_alert_delay: float = 2.0,
+        live_mode: bool = True
     ):
         """
         Initialize the alert manager
@@ -36,28 +37,32 @@ class AlertManager:
         Args:
             llm_service: LLM service for generating alert messages
             voice_service: Voice service for TTS
-            confidence_threshold: Minimum confidence to trigger alert
-            repeat_alert_delay: Seconds before repeat alert (default: 6)
+            confidence_threshold: Minimum confidence to trigger alert (lowered for live detection)
+            repeat_alert_delay: Seconds before repeat alert (reduced for live mode)
+            live_mode: Enable live detection mode (alerts on every detection)
         """
         self.llm_service = llm_service
         self.voice_service = voice_service
         self.confidence_threshold = confidence_threshold
         self.repeat_alert_delay = repeat_alert_delay
+        self.live_mode = live_mode
         
         # Alert state
         self.danger_active = False
         self.first_alert_time: Optional[float] = None
         self.second_alert_sent = False
         self.last_dangerous_detections: List[Dict[str, Any]] = []
+        self.last_alert_time: Optional[float] = None
         
-        print(f"✓ Alert Manager initialized (threshold: {confidence_threshold}, repeat delay: {repeat_alert_delay}s)")
+        print(f"✓ Alert Manager initialized (threshold: {confidence_threshold}, repeat delay: {repeat_alert_delay}s, live mode: {live_mode})")
     
-    def check_and_alert(self, detections: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def check_and_alert(self, detections: List[Dict[str, Any]], drowning_analysis: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Check detections for danger and trigger alerts if needed
         
         Args:
             detections: List of detection dictionaries
+            drowning_analysis: Optional drowning behavior analysis results
             
         Returns:
             Dictionary with alert status information
@@ -65,7 +70,8 @@ class AlertManager:
         # Check if there are any dangerous detections
         dangerous = self._filter_dangerous_detections(detections)
         
-        if dangerous:
+        # Only trigger Fish Audio alerts if person is detected AND there's drowning risk
+        if dangerous and self._should_trigger_voice_alert(dangerous, drowning_analysis):
             return self._handle_danger_detected(dangerous)
         else:
             return self._handle_no_danger()
@@ -88,11 +94,72 @@ class AlertManager:
         
         return dangerous
     
+    def _should_trigger_voice_alert(self, dangerous_detections: List[Dict[str, Any]], drowning_analysis: Optional[Dict[str, Any]]) -> bool:
+        """
+        Determine if Fish Audio alert should be triggered
+        
+        Args:
+            dangerous_detections: List of dangerous detections
+            drowning_analysis: Optional drowning behavior analysis results
+            
+        Returns:
+            True if voice alert should be triggered
+        """
+        # Check if any person detections are present
+        has_person = any(det.get("class", "").lower() == "person" for det in dangerous_detections)
+        
+        if not has_person:
+            return False
+        
+        # In live mode, be more aggressive with alerts
+        if self.live_mode:
+            # Trigger on any person detection with medium/high risk, or any person if no analysis
+            if drowning_analysis:
+                drowning_risk = drowning_analysis.get("drowning_risk", "none")
+                return drowning_risk in ["medium", "high", "low"]  # Include low risk in live mode
+            else:
+                return True  # Trigger on any person detection in live mode
+        
+        # Standard mode: only trigger on medium/high risk
+        if drowning_analysis:
+            drowning_risk = drowning_analysis.get("drowning_risk", "none")
+            return drowning_risk in ["medium", "high"]
+        
+        # If no drowning analysis, trigger on any person detection (fallback)
+        return True
+    
     def _handle_danger_detected(self, dangerous_detections: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Handle when danger is detected"""
         current_time = time.time()
         self.last_dangerous_detections = dangerous_detections
         
+        # Live mode: Send alert on every detection (with minimal throttling)
+        if self.live_mode:
+            # Throttle alerts to prevent spam (minimum 1 second between alerts)
+            if self.last_alert_time and (current_time - self.last_alert_time) < 1.0:
+                return {
+                    "danger_active": True,
+                    "alert_sent": False,
+                    "alert_type": "throttled",
+                    "time_since_last_alert": current_time - self.last_alert_time,
+                    "dangerous_detections": len(dangerous_detections)
+                }
+            
+            print("\n🚨 LIVE ALERT - Person detected with drowning risk!")
+            self.last_alert_time = current_time
+            
+            # Generate and send alert
+            self._send_alert(dangerous_detections, is_repeat=False)
+            
+            return {
+                "danger_active": True,
+                "alert_sent": True,
+                "alert_type": "live",
+                "time_since_last_alert": 0,
+                "dangerous_detections": len(dangerous_detections)
+            }
+        
+        # Original logic for non-live mode
         # Case 1: First danger detection - send immediate alert
         if not self.danger_active:
             print("\n⚠️  DANGER DETECTED - Sending first alert")
