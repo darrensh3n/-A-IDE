@@ -15,9 +15,6 @@ fish-audio-sdk==2025.6.3
 groq==0.11.0
 python-dotenv==1.0.1
 
-# Speech recognition
-SpeechRecognition==3.10.0
-PyAudio==0.2.11
 
 torch==2.9.0
 torchvision==0.24.0

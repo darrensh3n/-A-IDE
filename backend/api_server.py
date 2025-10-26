@@ -22,7 +22,6 @@ from dotenv import load_dotenv
 from services.llm_service import LLMService
 from services.voice_alert_service import VoiceAlertService
 from services.alert_manager import AlertManager
-from services.voice_command_service import VoiceCommandService
 
 # Load environment variables
 load_dotenv()
@@ -49,8 +48,6 @@ frame_counter = 0
 # Global alert manager
 alert_manager = None
 
-# Global voice command service
-voice_command_service = None
 
 def load_model():
     """Load YOLOv8 model for drowning detection"""
@@ -104,35 +101,12 @@ def initialize_alert_system():
         print("   Detection will continue without alerts\n")
         alert_manager = None
 
-def initialize_voice_commands():
-    """Initialize the voice command system"""
-    global voice_command_service
-    
-    try:
-        print("\nInitializing voice command system...")
-        voice_command_service = VoiceCommandService()
-        
-        # Test microphone
-        if voice_command_service.test_microphone():
-            print("✓ Voice command system initialized successfully!")
-            print("✓ Microphone test passed")
-        else:
-            print("⚠️  Voice command system initialized but microphone test failed")
-            print("   Voice commands may not work properly")
-        
-        print()
-        
-    except Exception as e:
-        print(f"✗ Failed to initialize voice command system: {e}")
-        print("   Voice commands will be disabled\n")
-        voice_command_service = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize model and alert system on startup"""
     load_model()
     initialize_alert_system()
-    initialize_voice_commands()
 
 def analyze_drowning_behavior(detections, frame_number):
     """
@@ -619,97 +593,9 @@ async def reset_alert():
         "timestamp": datetime.now().isoformat()
     }
 
-@app.post("/api/voice-command")
-async def process_voice_command():
-    """
-    Process a voice command
-    
-    Returns:
-        Command result and status
-    """
-    if not voice_command_service:
-        raise HTTPException(status_code=503, detail="Voice command system not initialized")
-    
-    try:
-        command = voice_command_service.listen_for_command(timeout=5)
-        
-        if command:
-            return {
-                "success": True,
-                "command": command,
-                "message": f"Command '{command}' executed successfully",
-                "timestamp": datetime.now().isoformat()
-            }
-        else:
-            return {
-                "success": False,
-                "command": None,
-                "message": "No valid command detected",
-                "timestamp": datetime.now().isoformat()
-            }
-            
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Voice command processing error: {str(e)}")
 
-@app.get("/api/voice-commands")
-async def get_available_commands():
-    """
-    Get list of available voice commands
-    
-    Returns:
-        List of available commands
-    """
-    if not voice_command_service:
-        raise HTTPException(status_code=503, detail="Voice command system not initialized")
-    
-    commands = voice_command_service.get_available_commands()
-    return {
-        "commands": commands,
-        "count": len(commands),
-        "timestamp": datetime.now().isoformat()
-    }
 
-@app.post("/api/voice-command/start-listening")
-async def start_continuous_listening():
-    """
-    Start continuous listening for voice commands
-    
-    Returns:
-        Confirmation message
-    """
-    if not voice_command_service:
-        raise HTTPException(status_code=503, detail="Voice command system not initialized")
-    
-    try:
-        voice_command_service.start_continuous_listening()
-        return {
-            "success": True,
-            "message": "Continuous voice command listening started",
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to start listening: {str(e)}")
 
-@app.post("/api/voice-command/stop-listening")
-async def stop_continuous_listening():
-    """
-    Stop continuous listening for voice commands
-    
-    Returns:
-        Confirmation message
-    """
-    if not voice_command_service:
-        raise HTTPException(status_code=503, detail="Voice command system not initialized")
-    
-    try:
-        voice_command_service.stop_continuous_listening()
-        return {
-            "success": True,
-            "message": "Continuous voice command listening stopped",
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to stop listening: {str(e)}")
 
 if __name__ == "__main__":
     print("=" * 60)
