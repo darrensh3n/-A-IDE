@@ -309,7 +309,7 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
 
   return (
     <Card className="overflow-hidden shadow-2xl border-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
-      <div className="border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-indigo-50 to-cyan-50 dark:from-slate-800 dark:to-slate-900 px-4 py-4">
+      <div className="border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-red-50 to-rose-50 dark:from-slate-800 dark:to-slate-900 px-4 py-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">Live Monitor</h2>
           <div className="flex items-center gap-2">
@@ -406,7 +406,7 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
         </div>
       )}
 
-      <div className="relative aspect-video bg-gradient-to-br from-slate-100 via-blue-100 to-indigo-100 dark:from-slate-800 dark:via-slate-900 dark:to-blue-950">
+      <div className="relative aspect-video bg-gradient-to-br from-slate-100 via-red-100 to-rose-100 dark:from-slate-800 dark:via-slate-900 dark:to-red-950">
         {!videoSource && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
             <div className="rounded-full bg-muted-foreground/10 p-6">

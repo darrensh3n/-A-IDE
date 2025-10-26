@@ -45,7 +45,7 @@ export function DetectionStats({
 
   return (
     <Card className="overflow-hidden shadow-2xl border-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
-      <div className="border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-slate-800 dark:to-slate-900 px-4 py-4">
+      <div className="border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-red-50 to-rose-50 dark:from-slate-800 dark:to-slate-900 px-4 py-4">
         <h2 className="text-lg font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">System Statistics</h2>
       </div>
 
@@ -55,10 +55,10 @@ export function DetectionStats({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className={`rounded-xl bg-gradient-to-br p-3 shadow-sm ${
-                  index === 0 ? "from-blue-500/10 to-cyan-500/10 border border-blue-200 dark:border-blue-800" :
+                  index === 0 ? "from-red-500/10 to-rose-500/10 border border-red-200 dark:border-red-800" :
                   index === 1 ? "from-red-500/10 to-rose-500/10 border border-red-200 dark:border-red-800" :
-                  index === 2 ? "from-green-500/10 to-emerald-500/10 border border-green-200 dark:border-green-800" :
-                  "from-purple-500/10 to-violet-500/10 border border-purple-200 dark:border-purple-800"
+                  index === 2 ? "from-red-500/10 to-rose-500/10 border border-red-200 dark:border-red-800" :
+                  "from-red-500/10 to-rose-500/10 border border-red-200 dark:border-red-800"
                 }`}>
                   <stat.icon className={`h-5 w-5 ${stat.color}`} />
                 </div>

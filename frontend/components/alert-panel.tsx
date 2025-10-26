@@ -30,10 +30,10 @@ export function AlertPanel({ alerts, onClearAlert, onVoiceAlert }: AlertPanelPro
 
   return (
     <Card className="overflow-hidden shadow-2xl border-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
-      <div className="border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-900 px-4 py-4">
+      <div className="border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-red-50 to-rose-50 dark:from-slate-800 dark:to-slate-900 px-4 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 p-2 shadow-lg">
+            <div className="rounded-xl bg-gradient-to-br from-red-500 to-rose-600 p-2 shadow-lg">
               <Bell className="h-5 w-5 text-white" />
             </div>
             <h2 className="text-lg font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">Alert History</h2>
@@ -63,16 +63,16 @@ export function AlertPanel({ alerts, onClearAlert, onVoiceAlert }: AlertPanelPro
                     alert.type === "critical"
                       ? "bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/30 border border-red-200 dark:border-red-800"
                       : alert.type === "warning"
-                        ? "bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-950/30 dark:to-amber-950/30 border border-orange-200 dark:border-orange-800"
-                        : "bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950/30 dark:to-cyan-950/30 border border-blue-200 dark:border-blue-800"
+                        ? "bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/30 border border-red-200 dark:border-red-800"
+                        : "bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/30 border border-red-200 dark:border-red-800"
                   }`}
                 >
                   {alert.type === "critical" ? (
                     <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
                   ) : alert.type === "warning" ? (
-                    <AlertTriangle className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                    <AlertTriangle className="h-5 w-5 text-red-500 dark:text-red-400" />
                   ) : (
-                    <CheckCircle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    <CheckCircle className="h-5 w-5 text-red-500 dark:text-red-400" />
                   )}
                 </div>
                 <div className="flex-1 space-y-1">
