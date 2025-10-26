@@ -1,6 +1,6 @@
 # Drowning Detection System
 
-AI-powered drowning detection system with real-time monitoring capabilities.
+An AI-powered lifeguard assistant that uses real-time video analysis to detect potential drowning incidents. Built with YOLOv8, FastAPI, and Next.js, it provides instant alerts, visual detection feedback, and a live monitoring dashboard — helping make swimming environments safer through intelligent automation.
 
 ## Project Structure
 
