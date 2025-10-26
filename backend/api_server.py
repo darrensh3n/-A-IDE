@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 from services.llm_service import LLMService
 from services.voice_alert_service import VoiceAlertService
 from services.alert_manager import AlertManager
+from services.voice_command_service import VoiceCommandService
 
 # Load environment variables
 load_dotenv()
@@ -48,6 +49,9 @@ frame_counter = 0
 
 # Global alert manager
 alert_manager = None
+
+# Global voice command service
+voice_command_service = None
 
 def load_model():
     """Load YOLOv8 model for drowning detection"""
@@ -107,11 +111,35 @@ def initialize_alert_system():
         print("   Detection will continue without alerts\n")
         alert_manager = None
 
+def initialize_voice_commands():
+    """Initialize the voice command system"""
+    global voice_command_service
+    
+    try:
+        print("\nInitializing voice command system...")
+        voice_command_service = VoiceCommandService()
+        
+        # Test microphone
+        if voice_command_service.test_microphone():
+            print("✓ Voice command system initialized successfully!")
+            print("✓ Microphone test passed")
+        else:
+            print("⚠️  Voice command system initialized but microphone test failed")
+            print("   Voice commands may not work properly")
+        
+        print()
+        
+    except Exception as e:
+        print(f"✗ Failed to initialize voice command system: {e}")
+        print("   Voice commands will be disabled\n")
+        voice_command_service = None
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize model and alert system on startup"""
     load_model()
     initialize_alert_system()
+    initialize_voice_commands()
 
 def analyze_drowning_behavior(detections, frame_number):
     """
@@ -190,27 +218,69 @@ def analyze_drowning_behavior(detections, frame_number):
         
         # Indicator 1: Lack of horizontal movement (staying in same spot)
         if x_variance < 100:  # Person not moving horizontally
-            risk_score += 0.3
+            risk_score += 0.2
             indicators.append(f"Person {person_id}: Minimal horizontal movement")
         
         # Indicator 2: Vertical position not changing (not swimming up)
         if y_variance < 50:
-            risk_score += 0.3
+            risk_score += 0.2
             indicators.append(f"Person {person_id}: Stuck at same vertical position")
         
         # Indicator 3: Extended time without significant movement
         if len(positions) > 20:
             recent_y_variance = np.var([p["y"] for p in positions[-10:]])
             if recent_y_variance < 30:
-                risk_score += 0.4
+                risk_score += 0.3
                 indicators.append(f"Person {person_id}: Extended time without vertical movement")
+        
+        # Indicator 4: Erratic/panic movements (high variance in short bursts)
+        if len(positions) > 5:  # Reduced from 10 to 5 for faster detection
+            recent_positions = positions[-8:]  # Reduced from 10 to 8
+            y_changes = [abs(recent_positions[i]["y"] - recent_positions[i-1]["y"]) for i in range(1, len(recent_positions))]
+            x_changes = [abs(recent_positions[i]["x"] - recent_positions[i-1]["x"]) for i in range(1, len(recent_positions))]
+            
+            # High frequency of large movements (panic waving) - Lowered thresholds
+            if len(y_changes) > 0 and np.mean(y_changes) > 10 and np.std(y_changes) > 8:  # Lowered from 20/15 to 10/8
+                risk_score += 0.5  # Increased from 0.4 to 0.5
+                indicators.append(f"Person {person_id}: Erratic vertical movements (panic)")
+            
+            if len(x_changes) > 0 and np.mean(x_changes) > 10 and np.std(x_changes) > 8:  # Lowered from 20/15 to 10/8
+                risk_score += 0.5  # Increased from 0.4 to 0.5
+                indicators.append(f"Person {person_id}: Erratic horizontal movements (panic)")
+        
+        # Indicator 5: Rapid up-down movement without forward progress (struggling)
+        if len(positions) > 10:  # Reduced from 15 to 10 for faster detection
+            recent_y = [p["y"] for p in positions[-10:]]  # Reduced from 15 to 10
+            recent_x = [p["x"] for p in positions[-10:]]  # Reduced from 15 to 10
+            
+            # High vertical movement but low horizontal movement (struggling to stay up)
+            if np.var(recent_y) > 50 and np.var(recent_x) < 100:  # Lowered thresholds
+                risk_score += 0.6  # Increased from 0.5 to 0.6
+                indicators.append(f"Person {person_id}: Struggling to stay afloat (high vertical, low horizontal movement)")
+        
+        # Indicator 6: Outstretched arms pattern (like in your image)
+        if len(positions) > 5:
+            recent_positions = positions[-6:]
+            # Check for rapid changes in bounding box size (arms extending/retracting)
+            if len(recent_positions) >= 3:
+                width_changes = [abs(recent_positions[i]["width"] - recent_positions[i-1]["width"]) for i in range(1, len(recent_positions))]
+                height_changes = [abs(recent_positions[i]["height"] - recent_positions[i-1]["height"]) for i in range(1, len(recent_positions))]
+                
+                # Large changes in bounding box size indicate arm movement
+                if len(width_changes) > 0 and np.mean(width_changes) > 15:
+                    risk_score += 0.4
+                    indicators.append(f"Person {person_id}: Rapid arm movements detected")
+                
+                if len(height_changes) > 0 and np.mean(height_changes) > 15:
+                    risk_score += 0.4
+                    indicators.append(f"Person {person_id}: Rapid body movements detected")
     
-    # Determine risk level
-    if risk_score >= 0.7:
+    # Determine risk level (very sensitive thresholds for drowning detection)
+    if risk_score >= 0.3:  # Lowered from 0.5 to 0.3
         drowning_risk = "high"
-    elif risk_score >= 0.4:
+    elif risk_score >= 0.2:  # Lowered from 0.3 to 0.2
         drowning_risk = "medium"
-    elif risk_score >= 0.2:
+    elif risk_score >= 0.05:  # Lowered from 0.1 to 0.05
         drowning_risk = "low"
     else:
         drowning_risk = "none"
@@ -781,6 +851,7 @@ async def reset_alert():
         "timestamp": datetime.now().isoformat()
     }
 
+
 @app.post("/api/generate-voice-alert")
 async def generate_voice_alert():
     """
@@ -815,6 +886,99 @@ async def generate_voice_alert():
             status_code=500,
             detail=f"Failed to generate voice alert: {str(e)}"
         )
+=======
+@app.post("/api/voice-command")
+async def process_voice_command():
+    """
+    Process a voice command
+    
+    Returns:
+        Command result and status
+    """
+    if not voice_command_service:
+        raise HTTPException(status_code=503, detail="Voice command system not initialized")
+    
+    try:
+        command = voice_command_service.listen_for_command(timeout=5)
+        
+        if command:
+            return {
+                "success": True,
+                "command": command,
+                "message": f"Command '{command}' executed successfully",
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            return {
+                "success": False,
+                "command": None,
+                "message": "No valid command detected",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Voice command processing error: {str(e)}")
+
+@app.get("/api/voice-commands")
+async def get_available_commands():
+    """
+    Get list of available voice commands
+    
+    Returns:
+        List of available commands
+    """
+    if not voice_command_service:
+        raise HTTPException(status_code=503, detail="Voice command system not initialized")
+    
+    commands = voice_command_service.get_available_commands()
+    return {
+        "commands": commands,
+        "count": len(commands),
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/voice-command/start-listening")
+async def start_continuous_listening():
+    """
+    Start continuous listening for voice commands
+    
+    Returns:
+        Confirmation message
+    """
+    if not voice_command_service:
+        raise HTTPException(status_code=503, detail="Voice command system not initialized")
+    
+    try:
+        voice_command_service.start_continuous_listening()
+        return {
+            "success": True,
+            "message": "Continuous voice command listening started",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start listening: {str(e)}")
+
+@app.post("/api/voice-command/stop-listening")
+async def stop_continuous_listening():
+    """
+    Stop continuous listening for voice commands
+    
+    Returns:
+        Confirmation message
+    """
+    if not voice_command_service:
+        raise HTTPException(status_code=503, detail="Voice command system not initialized")
+    
+    try:
+        voice_command_service.stop_continuous_listening()
+        return {
+            "success": True,
+            "message": "Continuous voice command listening stopped",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to stop listening: {str(e)}")
+
 
 if __name__ == "__main__":
     print("=" * 60)
