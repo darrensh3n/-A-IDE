@@ -127,6 +127,7 @@ export default function Home() {
     setAlerts((prev) => prev.filter((alert) => alert.id !== id))
   }, [])
 
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">

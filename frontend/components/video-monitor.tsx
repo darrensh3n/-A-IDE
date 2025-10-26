@@ -243,6 +243,11 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
     }
   }, [isRealTimeEnabled, videoSource, isRealTimeRunning, startRealTimeProcessing, stopRealTimeProcessing])
 
+  // Auto-start camera on component mount
+  useEffect(() => {
+    startCamera()
+  }, [])
+
   useEffect(() => {
     return () => {
       if (streamRef.current) {
