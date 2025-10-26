@@ -40,6 +40,7 @@ app.add_middleware(
 
 # Global model variable
 model = None
+pose_model = None  # YOLOv8 pose estimation model
 MODEL_PATH = "models/drowning_detection.pt"
 
 # Global state for tracking people across frames (for drowning behavior analysis)
@@ -54,7 +55,7 @@ voice_command_service = None
 
 def load_model():
     """Load YOLOv8 model for drowning detection"""
-    global model
+    global model, pose_model
     try:
         if os.path.exists(MODEL_PATH):
             print(f"Loading custom model from {MODEL_PATH}")
@@ -62,8 +63,14 @@ def load_model():
         else:
             print("Custom model not found. Using YOLOv8n as fallback.")
             print("To use a custom drowning detection model, place it at:", MODEL_PATH)
-            model = YOLO("yolov8n.pt")  # Fallback to pretrained model
+            model = YOLO("models/yolov8n.pt")  # Fallback to pretrained model
         print("Model loaded successfully!")
+        
+        # Load YOLOv8 pose estimation model for distress detection
+        print("Loading YOLOv8 pose estimation model...")
+        pose_model = YOLO("models/yolov8n-pose.pt")
+        print("✓ Pose estimation model loaded successfully!")
+        
     except Exception as e:
         print(f"Error loading model: {e}")
         raise
@@ -285,6 +292,144 @@ def analyze_drowning_behavior(detections, frame_number):
         "people_detected": len(person_detections)
     }
 
+def analyze_pose_distress(image, detections):
+    """
+    Analyze pose keypoints to detect distress/drowning behavior
+    
+    Distress indicators from pose:
+    - Arms raised above head (sinking)
+    - Head below shoulders (sinking)
+    - Vertical body orientation (in water)
+    - Arms flailing (erratic keypoints)
+    - Asymmetric arm positions (struggling)
+    
+    Args:
+        image: Input image (numpy array)
+        detections: List of person detections with bboxes
+        
+    Returns:
+        Dictionary with pose-based distress analysis
+    """
+    global pose_model
+    
+    if pose_model is None:
+        return None
+    
+    pose_results = []
+    distress_scores = []
+    
+    for detection in detections:
+        if detection.get("class", "").lower() != "person":
+            continue
+            
+        bbox = detection["bbox"]
+        x1, y1, x2, y2 = bbox
+        
+        # Extract person region from image
+        person_roi = image[int(y1):int(y2), int(x1):int(x2)]
+        
+        if person_roi.size == 0:
+            continue
+        
+        # Run pose estimation on person region
+        try:
+            results = pose_model(person_roi, verbose=False)
+            
+            if len(results) == 0 or results[0].keypoints is None:
+                print("    No pose keypoints detected for this person")
+                continue
+            
+            print(f"    ✓ Detected {len(results[0].keypoints.xy[0])} keypoints for person")
+                
+            keypoints = results[0].keypoints.xy.cpu().numpy()[0]  # Get first person's keypoints
+            confidences = results[0].keypoints.conf.cpu().numpy()[0]
+            
+            # YOLO pose keypoint indices (17 keypoints):
+            # 0: nose, 1: left_eye, 2: right_eye, 3: left_ear, 4: right_ear,
+            # 5: left_shoulder, 6: right_shoulder, 7: left_elbow, 8: right_elbow,
+            # 9: left_wrist, 10: right_wrist, 11: left_hip, 12: right_hip,
+            # 13: left_knee, 14: right_knee, 15: left_ankle, 16: right_ankle
+            
+            distress_score = 0.0
+            distress_indicators = []
+            
+            # Calculate distress indicators
+            valid_keypoints = []
+            for i, (kp, conf) in enumerate(zip(keypoints, confidences)):
+                if conf > 0.5:  # Only use confident keypoints
+                    valid_keypoints.append((i, kp, conf))
+            
+            if len(valid_keypoints) < 5:  # Need minimum keypoints
+                continue
+            
+            # Indicator 1: Arms raised above head
+            if all(conf > 0.5 for conf in [confidences[0], confidences[9], confidences[10]]):
+                nose_y = keypoints[0][1]
+                left_wrist_y = keypoints[9][1]
+                right_wrist_y = keypoints[10][1]
+                
+                if left_wrist_y < nose_y or right_wrist_y < nose_y:
+                    distress_score += 0.3
+                    distress_indicators.append("Arms raised (sinking distress)")
+            
+            # Indicator 2: Head below shoulders (vertical sinking)
+            if all(conf > 0.5 for conf in [confidences[0], confidences[5], confidences[6]]):
+                nose_y = keypoints[0][1]
+                left_shoulder_y = keypoints[5][1]
+                right_shoulder_y = keypoints[6][1]
+                avg_shoulder_y = (left_shoulder_y + right_shoulder_y) / 2
+                
+                if nose_y > avg_shoulder_y + 30:  # Head significantly below shoulders
+                    distress_score += 0.3
+                    distress_indicators.append("Head below shoulders (vertical orientation)")
+            
+            # Indicator 3: Asymmetric arm positions (flailing)
+            if all(conf > 0.5 for conf in [confidences[7], confidences[8], confidences[9], confidences[10]]):
+                left_elbow_y = keypoints[7][1]
+                right_elbow_y = keypoints[8][1]
+                left_wrist_y = keypoints[9][1]
+                right_wrist_y = keypoints[10][1]
+                
+                arm_asymmetry = abs((left_elbow_y - left_wrist_y) - (right_elbow_y - right_wrist_y))
+                if arm_asymmetry > 50:  # Significant asymmetry
+                    distress_score += 0.2
+                    distress_indicators.append("Asymmetric arm positions (flailing)")
+            
+            # Indicator 4: Erratic movement (jump detection from recent frames)
+            # This would require frame history, simplified here
+            distress_scores.append(distress_score)
+            
+            pose_results.append({
+                "person_id": len(pose_results),
+                "distress_score": distress_score,
+                "indicators": distress_indicators,
+                "keypoints": keypoints.tolist() if len(keypoints) > 0 else []
+            })
+            
+        except Exception as e:
+            print(f"Error in pose estimation: {e}")
+            continue
+    
+    if not distress_scores:
+        return None
+    
+    max_distress = max(distress_scores)
+    
+    # Normalize distress score
+    if max_distress >= 0.6:
+        distress_level = "high"
+    elif max_distress >= 0.3:
+        distress_level = "medium"
+    else:
+        distress_level = "low"
+    
+    return {
+        "distress_level": distress_level,
+        "distress_score": round(max_distress, 2),
+        "people_analyzed": len(pose_results),
+        "pose_results": pose_results
+    }
+
 @app.get("/")
 async def root():
     """Health check endpoint"""
@@ -347,10 +492,28 @@ def process_image(image_path: str, confidence_threshold: float = 0.30):
     
     # Draw bounding boxes on image
     annotated_img = img.copy()
+    
+    # Filter for person detections only
+    person_detections = [d for d in detections if d.get("class", "").lower() == "person"]
+    
+    # Run pose estimation on person detections
+    pose_analysis = None
+    if person_detections and pose_model is not None:
+        print(f"Running pose estimation on {len(person_detections)} person(s)...")
+        pose_analysis = analyze_pose_distress(img, person_detections)
+        if pose_analysis:
+            print(f"Pose analysis complete: {pose_analysis.get('distress_level', 'unknown')} distress")
+        else:
+            print("No pose analysis results")
+    elif person_detections and pose_model is None:
+        print("⚠️ Pose model not loaded - skipping pose estimation")
+    
+    # Draw bounding boxes and keypoints for all detections
     for detection in detections:
         x1, y1, x2, y2 = [int(coord) for coord in detection["bbox"]]
         class_name = detection["class"]
         confidence = detection["confidence"]
+        is_person = class_name.lower() == "person"
         
         # Determine color based on class (red for drowning-related classes)
         drowning_keywords = ["drowning", "distress", "struggle", "person"]
@@ -358,6 +521,50 @@ def process_image(image_path: str, confidence_threshold: float = 0.30):
         
         # Draw rectangle
         cv2.rectangle(annotated_img, (x1, y1), (x2, y2), color, 2)
+        
+        # If this is a person and we have pose analysis, draw keypoints
+        if is_person and pose_analysis:
+            # Find corresponding pose result for this person
+            person_index = next((i for i, det in enumerate(person_detections) if det == detection), None)
+            if person_index is not None and person_index < len(pose_analysis.get("pose_results", [])):
+                pose_result = pose_analysis["pose_results"][person_index]
+                keypoints = pose_result.get("keypoints", [])
+                
+                if keypoints:
+                    # Draw skeleton connections
+                    skeleton_connections = [
+                        (0, 1), (0, 2), (1, 3), (2, 4),  # head
+                        (5, 6),  # shoulders
+                        (5, 7), (7, 9),  # left arm
+                        (6, 8), (8, 10),  # right arm
+                        (5, 11), (6, 12),  # torso
+                        (11, 12),  # hips
+                        (11, 13), (13, 15),  # left leg
+                        (12, 14), (14, 16),  # right leg
+                    ]
+                    
+                    for start_idx, end_idx in skeleton_connections:
+                        if (start_idx < len(keypoints) and end_idx < len(keypoints) and
+                            all(keypoints[start_idx][i] > 0 and keypoints[end_idx][i] > 0 for i in range(2))):
+                            # Adjust keypoint coordinates (they're relative to ROI)
+                            pt1 = (int(keypoints[start_idx][0] + x1), int(keypoints[start_idx][1] + y1))
+                            pt2 = (int(keypoints[end_idx][0] + x1), int(keypoints[end_idx][1] + y1))
+                            cv2.line(annotated_img, pt1, pt2, (255, 255, 0), 2)
+                    
+                    # Draw keypoints
+                    for i, kp in enumerate(keypoints):
+                        if all(kp[j] > 0 for j in range(2)):  # Valid keypoint
+                            center = (int(kp[0] + x1), int(kp[1] + y1))
+                            # Color keypoints based on importance for distress
+                            if i in [0, 9, 10]:  # nose, left_wrist, right_wrist (important for distress)
+                                kp_color = (0, 255, 255)  # Yellow
+                                cv2.circle(annotated_img, center, 4, kp_color, -1)
+                            elif i in [5, 6]:  # shoulders
+                                kp_color = (255, 0, 255)  # Magenta
+                                cv2.circle(annotated_img, center, 4, kp_color, -1)
+                            else:
+                                kp_color = (255, 255, 255)  # White
+                                cv2.circle(annotated_img, center, 3, kp_color, -1)
         
         # Draw label
         label = f"{class_name} {confidence:.2f}"
@@ -369,6 +576,26 @@ def process_image(image_path: str, confidence_threshold: float = 0.30):
     global frame_counter
     behavior_analysis = analyze_drowning_behavior(detections, frame_counter)
     
+    # Combine pose analysis with behavior analysis for comprehensive risk assessment
+    if pose_analysis:
+        # Use the higher risk level from pose analysis
+        pose_risk_scores = {"low": 0.3, "medium": 0.6, "high": 0.9}
+        pose_risk_score = pose_risk_scores.get(pose_analysis.get("distress_level", "low"), 0.3)
+        
+        # Combine with movement-based analysis (weighted average)
+        combined_risk_score = (behavior_analysis["risk_score"] * 0.4) + (pose_risk_score * 0.6)
+        
+        # Update drowning risk based on combined analysis
+        if combined_risk_score >= 0.7:
+            behavior_analysis["drowning_risk"] = "high"
+        elif combined_risk_score >= 0.4:
+            behavior_analysis["drowning_risk"] = "medium"
+        elif combined_risk_score >= 0.2:
+            behavior_analysis["drowning_risk"] = "low"
+        
+        behavior_analysis["risk_score"] = round(combined_risk_score, 2)
+        behavior_analysis["pose_analysis"] = pose_analysis
+    
     # Highlight high-risk detections
     if behavior_analysis["drowning_risk"] in ["high", "medium"]:
         # Draw warning overlay
@@ -376,6 +603,11 @@ def process_image(image_path: str, confidence_threshold: float = 0.30):
                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
         cv2.putText(annotated_img, f"Risk Score: {behavior_analysis['risk_score']}", 
                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        
+        # Add pose-based distress info if available
+        if pose_analysis and pose_analysis.get("distress_level") in ["medium", "high"]:
+            cv2.putText(annotated_img, f"Pose Distress: {pose_analysis['distress_level']}", 
+                       (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     
     # Convert annotated image to base64
     _, buffer = cv2.imencode('.jpg', annotated_img)
@@ -710,6 +942,40 @@ async def stop_continuous_listening():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to stop listening: {str(e)}")
+@app.post("/api/generate-voice-alert")
+async def generate_voice_alert():
+    """
+    Manually trigger a test voice alert
+    
+    Returns:
+        Status of the voice alert generation
+    """
+    if not alert_manager:
+        raise HTTPException(status_code=503, detail="Alert system not initialized")
+    
+    # Create mock detection data for testing
+    mock_detections = [
+        {
+            "class": "person",
+            "confidence": 0.85,
+            "bbox": [100, 100, 200, 300]
+        }
+    ]
+    
+    try:
+        # Generate and send a voice alert
+        alert_manager._send_alert(mock_detections, is_repeat=False)
+        
+        return {
+            "success": True,
+            "message": "Voice alert generated and sent successfully",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate voice alert: {str(e)}"
+        )
 
 if __name__ == "__main__":
     print("=" * 60)
