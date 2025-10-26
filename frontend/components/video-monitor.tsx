@@ -269,25 +269,23 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
 
       ctx.drawImage(video, 0, 0)
 
-      // Draw bounding boxes for all detections (live mode shows everything)
+      // Draw bounding boxes only for person detections
       detectionResult.detections
-        .filter(detection => detection.confidence >= 0.3) // Lower threshold for live detection
+        .filter(detection => {
+          return detection.class.toLowerCase().includes("person") && detection.confidence >= 0.3 // Lower threshold for live detection
+        })
         .forEach((detection) => {
           const [x1, y1, x2, y2] = detection.bbox
           const isDrowning = detection.class.toLowerCase().includes("drowning") ||
                             detection.class.toLowerCase().includes("distress")
-          const isPerson = detection.class.toLowerCase().includes("person")
           
           // Color coding based on detection type and confidence
-          let strokeColor = "#3b82f6" // Default blue
-          let fillColor = "#3b82f6"
+          let strokeColor = "#10b981" // Default green for person
+          let fillColor = "#10b981"
           
           if (isDrowning) {
             strokeColor = "#ef4444" // Red for drowning
             fillColor = "#ef4444"
-          } else if (isPerson) {
-            strokeColor = "#10b981" // Green for person
-            fillColor = "#10b981"
           }
           
           // Make high confidence detections thicker
@@ -310,10 +308,10 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
   }, [detectionResult, videoSource])
 
   return (
-    <Card className="overflow-hidden">
-      <div className="border-b border-border bg-muted/50 px-4 py-3">
+    <Card className="overflow-hidden shadow-2xl border-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl">
+      <div className="border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-indigo-50 to-cyan-50 dark:from-slate-800 dark:to-slate-900 px-4 py-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-foreground">Live Monitor</h2>
+          <h2 className="text-lg font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">Live Monitor</h2>
           <div className="flex items-center gap-2">
             {videoSource === "camera" ? (
               <Button variant="outline" size="sm" onClick={stopCamera} disabled={isProcessing}>
@@ -408,7 +406,7 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
         </div>
       )}
 
-      <div className="relative aspect-video bg-muted">
+      <div className="relative aspect-video bg-gradient-to-br from-slate-100 via-blue-100 to-indigo-100 dark:from-slate-800 dark:via-slate-900 dark:to-blue-950">
         {!videoSource && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
             <div className="rounded-full bg-muted-foreground/10 p-6">
