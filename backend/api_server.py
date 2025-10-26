@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from services.llm_service import LLMService
 from services.voice_alert_service import VoiceAlertService
 from services.alert_manager import AlertManager
-from services.voice_command_service import VoiceCommandService
+# from services.voice_command_service  # Disabled: incompatible with Python 3.13 import VoiceCommandService
 
 # Load environment variables
 load_dotenv()
@@ -886,7 +886,6 @@ async def generate_voice_alert():
             status_code=500,
             detail=f"Failed to generate voice alert: {str(e)}"
         )
-=======
 @app.post("/api/voice-command")
 async def process_voice_command():
     """
