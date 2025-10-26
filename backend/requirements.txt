@@ -19,3 +19,5 @@ python-dotenv==1.0.1
 SpeechRecognition==3.10.0
 PyAudio==0.2.11
 
+torch==2.9.0
+torchvision==0.24.0
