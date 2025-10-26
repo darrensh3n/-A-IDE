@@ -97,6 +97,7 @@ class AlertManager:
     def _should_trigger_voice_alert(self, dangerous_detections: List[Dict[str, Any]], drowning_analysis: Optional[Dict[str, Any]]) -> bool:
         """
         Determine if Fish Audio alert should be triggered
+        Only triggers when person is detected AND showing signs of struggling/drowning behavior
         
         Args:
             dangerous_detections: List of dangerous detections
@@ -111,22 +112,25 @@ class AlertManager:
         if not has_person:
             return False
         
-        # In live mode, be more aggressive with alerts
-        if self.live_mode:
-            # Trigger on any person detection with medium/high risk, or any person if no analysis
-            if drowning_analysis:
-                drowning_risk = drowning_analysis.get("drowning_risk", "none")
-                return drowning_risk in ["medium", "high", "low"]  # Include low risk in live mode
-            else:
-                return True  # Trigger on any person detection in live mode
-        
-        # Standard mode: only trigger on medium/high risk
+        # Only trigger voice alerts when there's actual struggling behavior
         if drowning_analysis:
             drowning_risk = drowning_analysis.get("drowning_risk", "none")
-            return drowning_risk in ["medium", "high"]
+            risk_score = drowning_analysis.get("risk_score", 0.0)
+            indicators = drowning_analysis.get("indicators", [])
+            
+            # Only trigger on medium or high risk (actual struggling behavior)
+            if drowning_risk in ["medium", "high"]:
+                print(f"🚨 Voice alert triggered: {drowning_risk} risk (score: {risk_score})")
+                print(f"   Indicators: {indicators}")
+                return True
+            else:
+                print(f"ℹ️  Person detected but no struggling behavior (risk: {drowning_risk}, score: {risk_score})")
+                return False
         
-        # If no drowning analysis, trigger on any person detection (fallback)
-        return True
+        # If no drowning analysis available, don't trigger voice alerts
+        # (This prevents false alarms when we can't analyze behavior)
+        print("⚠️  No drowning analysis available - skipping voice alert")
+        return False
     
     def _handle_danger_detected(self, dangerous_detections: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Handle when danger is detected"""
