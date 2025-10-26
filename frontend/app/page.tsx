@@ -60,6 +60,7 @@ export default function Home() {
     }
   }, [])
 
+
   const handleDetectionResult = useCallback((result: DetectionResult) => {
     // Filter detections to only count those with 80% confidence and above
     const highConfidenceDetections = result.detections.filter(detection => detection.confidence >= 0.8)
