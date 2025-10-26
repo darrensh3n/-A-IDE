@@ -7,8 +7,8 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'AIDE - Drowning Detection System',
+  description: 'AI-Powered Water Safety Monitoring with YOLOv8',
   generator: 'v0.app',
 }
 
