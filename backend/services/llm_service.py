@@ -32,6 +32,7 @@ class LLMService:
     def generate_alert_message(
         self,
         detections: List[Dict[str, Any]],
+        drowning_analysis: Optional[Dict[str, Any]] = None,
         is_repeat: bool = False
     ) -> Optional[str]:
         """
@@ -42,6 +43,12 @@ class LLMService:
                 - class: Detection class name
                 - confidence: Confidence score (0-1)
                 - bbox: Bounding box coordinates (optional)
+            drowning_analysis: Optional drowning behavior analysis with:
+                - drowning_risk: Risk level (low/medium/high)
+                - risk_score: Numeric risk score (0-1)
+                - indicators: List of behavior indicators
+                - people_detected: Number of people detected
+                - pose_analysis: Optional pose-based distress analysis
             is_repeat: Whether this is a repeat alert (danger persisting)
             
         Returns:
@@ -55,8 +62,8 @@ class LLMService:
             # Prepare detection summary
             detection_summary = self._format_detections(detections)
             
-            # Create prompt for Groq
-            prompt = self._create_prompt(detection_summary, is_repeat)
+            # Create prompt for Groq (with drowning analysis for detailed descriptions)
+            prompt = self._create_prompt(detection_summary, drowning_analysis, is_repeat)
             
             print(f"🤖 Generating alert with Groq...")
             
@@ -109,36 +116,74 @@ class LLMService:
         
         return ", ".join(summary_parts)
     
-    def _create_prompt(self, detection_summary: str, is_repeat: bool) -> str:
-        """Create prompt for Groq"""
+    def _create_prompt(self, detection_summary: str, drowning_analysis: Optional[Dict[str, Any]], is_repeat: bool) -> str:
+        """Create prompt for Groq with detailed person description"""
+        
+        # Build detailed context from drowning analysis
+        context_parts = [f"Detection details: {detection_summary}"]
+        
+        if drowning_analysis:
+            risk_level = drowning_analysis.get("drowning_risk", "unknown").upper()
+            risk_score = drowning_analysis.get("risk_score", 0.0)
+            people_count = drowning_analysis.get("people_detected", 0)
+            indicators = drowning_analysis.get("indicators", [])
+            pose_analysis = drowning_analysis.get("pose_analysis")
+            
+            context_parts.append(f"Risk level: {risk_level} (score: {risk_score})")
+            context_parts.append(f"People detected: {people_count}")
+            
+            if indicators:
+                indicators_text = "; ".join(indicators)
+                context_parts.append(f"Behavioral indicators: {indicators_text}")
+            
+            if pose_analysis:
+                distress_level = pose_analysis.get("distress_level", "unknown")
+                pose_indicators = pose_analysis.get("pose_results", [])
+                if pose_indicators:
+                    pose_details = []
+                    for result in pose_indicators:
+                        pose_ind = result.get("indicators", [])
+                        if pose_ind:
+                            pose_details.extend(pose_ind)
+                    if pose_details:
+                        context_parts.append(f"Pose distress ({distress_level}): {'; '.join(pose_details)}")
+        
+        full_context = "\n".join(context_parts)
+        
         if is_repeat:
-            prompt = f"""You are an AI safety alert system for drowning detection. Generate a SECOND urgent voice alert (15-25 words) because danger is still present after 6 seconds.
+            prompt = f"""You are an AI safety alert system for drowning detection. Generate a SECOND urgent voice alert (15-30 words) because danger is still present.
 
-Detection details: {detection_summary}
+{full_context}
 
 Requirements:
-- Urgent and direct tone
-- Mention this is a continuing/persistent danger
-- Clear call to action
+- Focus on describing EXACTLY what the person is doing based on the indicators (e.g., "arms raised above head", "not moving horizontally", "vertical body position", "head below water level")
+- This is a continuing danger so emphasize the persistence of these behaviors
+- Use the severity level (LOW/MEDIUM/HIGH) to adjust urgency
+- Be specific about the physical actions and position, NOT generic phrases like "check the area"
 - Natural for text-to-speech
 - NO quotes, NO punctuation except periods and exclamation marks
 
-Example: "Critical alert! Danger still detected in the pool area. Immediate intervention required. Check the pool now!"
+Example for HIGH risk: "Critical alert continues! Person with arms raised above head and no horizontal movement detected. Vertical sinking position observed. Immediate rescue required!"
+Example for MEDIUM risk: "Alert persists! Individual not moving horizontally with reduced vertical motion. Possible struggling behavior continues. Urgent intervention needed!"
+Example for LOW risk: "Ongoing alert. Person showing minimal movement in water with limited position changes. Continue monitoring closely!"
 
 Generate the alert:"""
         else:
-            prompt = f"""You are an AI safety alert system for drowning detection. Generate an urgent voice alert (15-25 words) based on these detections.
+            prompt = f"""You are an AI safety alert system for drowning detection. Generate an urgent voice alert (15-30 words) based on these detections.
 
-Detection details: {detection_summary}
+{full_context}
 
 Requirements:
-- Urgent and direct tone
-- Clearly state the danger
-- Clear call to action
+- Focus on describing EXACTLY what the person is doing based on the indicators (e.g., "arms raised above head", "not moving horizontally", "stuck at same vertical position", "head below shoulders")
+- Use the severity level (LOW/MEDIUM/HIGH) to adjust urgency and tone
+- Be specific about the physical actions and body position the person is exhibiting
+- Do NOT use generic phrases like "check the area" or "check the pool" - instead describe what you observe about the person
 - Natural for text-to-speech
 - NO quotes, NO punctuation except periods and exclamation marks
 
-Example: "Warning! Potential drowning detected in pool area. Please check immediately. This is an emergency alert!"
+Example for HIGH risk: "Emergency! Person detected with arms raised above head and no horizontal movement. Vertical body position with head below shoulders. Severe drowning indicators present!"
+Example for MEDIUM risk: "Warning! Individual showing minimal horizontal movement and reduced vertical motion. Person stuck at same position. Possible distress detected!"
+Example for LOW risk: "Alert! Person detected with limited movement patterns in water. No significant position changes observed. Monitor this individual!"
 
 Generate the alert:"""
         
@@ -155,9 +200,9 @@ Generate the alert:"""
             Fallback alert message
         """
         if is_repeat:
-            return "Critical alert! Danger is still present. Immediate action required. Check the area now!"
+            return "Critical alert continues! Person showing no movement recovery. Distress behavior persisting. Immediate rescue action required!"
         else:
-            return "Warning! Potential danger detected. Please check the monitored area immediately!"
+            return "Warning! Person detected with drowning indicators. Individual showing distress signals. Immediate attention required!"
 
 
 # Example usage

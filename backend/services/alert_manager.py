@@ -12,12 +12,14 @@ from .voice_alert_service import VoiceAlertService
 
 class AlertManager:
     """
-    Manages alert state and triggers voice alerts when danger is detected.
+    Manages alert state and triggers voice alerts when drowning behavior is detected.
     
     Alert Logic:
-    - First dangerous detection → immediate alert
-    - Danger persists for 6+ seconds → second alert
-    - Danger clears → reset state
+    - Alerts ONLY trigger when actual drowning behavior is detected (medium/high risk)
+    - Person detected without drowning indicators → NO alert
+    - First drowning detection → immediate alert
+    - Drowning persists for 6+ seconds → second alert
+    - Drowning behavior clears → reset state
     """
     
     # Classes that should trigger alerts (when confidence > threshold)
@@ -52,6 +54,7 @@ class AlertManager:
         self.first_alert_time: Optional[float] = None
         self.second_alert_sent = False
         self.last_dangerous_detections: List[Dict[str, Any]] = []
+        self.last_drowning_analysis: Optional[Dict[str, Any]] = None  # Store analysis for alerts
         self.last_alert_time: Optional[float] = None
         self.last_voice_alert_time: Optional[float] = None  # Debounce for Fish Audio voice alerts
         
@@ -73,7 +76,7 @@ class AlertManager:
         
         # Only trigger Fish Audio alerts if person is detected AND there's drowning risk
         if dangerous and self._should_trigger_voice_alert(dangerous, drowning_analysis):
-            return self._handle_danger_detected(dangerous)
+            return self._handle_danger_detected(dangerous, drowning_analysis)
         else:
             return self._handle_no_danger()
     
@@ -119,13 +122,14 @@ class AlertManager:
             risk_score = drowning_analysis.get("risk_score", 0.0)
             indicators = drowning_analysis.get("indicators", [])
             
-            # Only trigger on medium or high risk (actual struggling behavior)
+            # Only trigger on medium or high risk (actual drowning behavior detected)
             if drowning_risk in ["medium", "high"]:
-                print(f"🚨 Voice alert triggered: {drowning_risk} risk (score: {risk_score})")
-                print(f"   Indicators: {indicators}")
+                print(f"🚨 DROWNING BEHAVIOR DETECTED - {drowning_risk.upper()} risk (score: {risk_score})")
+                print(f"   Drowning indicators: {indicators}")
                 return True
             else:
-                print(f"ℹ️  Person detected but no struggling behavior (risk: {drowning_risk}, score: {risk_score})")
+                print(f"ℹ️  Person detected but NO drowning behavior (risk: {drowning_risk}, score: {risk_score})")
+                print(f"   Skipping alert - person appears to be swimming normally")
                 return False
         
         # If no drowning analysis available, don't trigger voice alerts
@@ -133,10 +137,18 @@ class AlertManager:
         print("⚠️  No drowning analysis available - skipping voice alert")
         return False
     
-    def _handle_danger_detected(self, dangerous_detections: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _handle_danger_detected(self, dangerous_detections: List[Dict[str, Any]], drowning_analysis: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Handle when danger is detected"""
         current_time = time.time()
-        self.last_dangerous_detections = dangerous_detections
+        
+        # Filter out phone detections from alert history
+        filtered_detections = [
+            det for det in dangerous_detections 
+            if det.get("class", "").lower() != "phone"
+        ]
+        
+        self.last_dangerous_detections = filtered_detections
+        self.last_drowning_analysis = drowning_analysis
         
         if self.live_mode:
             should_send_voice_alert = True
@@ -154,15 +166,15 @@ class AlertManager:
                     "alert_sent": False,
                     "alert_type": "throttled",
                     "time_since_last_alert": current_time - self.last_alert_time,
-                    "dangerous_detections": len(dangerous_detections)
+                    "dangerous_detections": len(filtered_detections)
                 }
             
-            print("\n🚨 LIVE ALERT - Person detected with drowning risk!")
+            print("\n🚨 DROWNING ALERT - Person exhibiting drowning behavior in water!")
             self.last_alert_time = current_time
             
             # Generate and send alert (with debounce check for Fish Audio)
             if should_send_voice_alert:
-                self._send_alert(dangerous_detections, is_repeat=False)
+                self._send_alert(filtered_detections, drowning_analysis, is_repeat=False)
                 self.last_voice_alert_time = current_time
                 print(f"   ✓ Voice alert sent (debounce: {time_since_voice_alert:.1f}s)")
             else:
@@ -173,12 +185,12 @@ class AlertManager:
                 "alert_sent": should_send_voice_alert,
                 "alert_type": "live" if should_send_voice_alert else "live_debounced",
                 "time_since_last_alert": 0,
-                "dangerous_detections": len(dangerous_detections),
+                "dangerous_detections": len(filtered_detections),
                 "time_since_voice_alert": time_since_voice_alert
             }
         
         if not self.danger_active:
-            print("\n⚠️  DANGER DETECTED - Sending first alert")
+            print("\n⚠️  DROWNING BEHAVIOR DETECTED - Sending first alert")
             self.danger_active = True
             self.first_alert_time = current_time
             self.second_alert_sent = False
@@ -192,7 +204,7 @@ class AlertManager:
             
             # Generate and send first alert (only if debounce allows)
             if should_send_voice_alert:
-                self._send_alert(dangerous_detections, is_repeat=False)
+                self._send_alert(filtered_detections, drowning_analysis, is_repeat=False)
                 self.last_voice_alert_time = current_time
                 print(f"   ✓ Voice alert sent (debounce: {time_since_voice_alert:.1f}s)")
             else:
@@ -203,7 +215,7 @@ class AlertManager:
                 "alert_sent": should_send_voice_alert,
                 "alert_type": "first" if should_send_voice_alert else "first_debounced",
                 "time_since_first_alert": 0,
-                "dangerous_detections": len(dangerous_detections),
+                "dangerous_detections": len(filtered_detections),
                 "time_since_voice_alert": time_since_voice_alert
             }
         
@@ -212,7 +224,7 @@ class AlertManager:
             time_elapsed = current_time - self.first_alert_time
             
             if time_elapsed >= self.repeat_alert_delay:
-                print(f"\n⚠️  DANGER PERSISTS ({time_elapsed:.1f}s) - Sending repeat alert")
+                print(f"\n⚠️  DROWNING BEHAVIOR PERSISTS ({time_elapsed:.1f}s) - Sending repeat alert")
                 self.second_alert_sent = True
                 
                 # Check debounce for voice alerts
@@ -225,7 +237,7 @@ class AlertManager:
                 
                 # Generate and send repeat alert (only if debounce allows)
                 if should_send_voice_alert:
-                    self._send_alert(dangerous_detections, is_repeat=True)
+                    self._send_alert(filtered_detections, drowning_analysis, is_repeat=True)
                     self.last_voice_alert_time = current_time
                     print(f"   ✓ Voice alert sent (debounce: {time_since_voice_alert:.1f}s)")
                 else:
@@ -236,7 +248,7 @@ class AlertManager:
                     "alert_sent": should_send_voice_alert,
                     "alert_type": "repeat" if should_send_voice_alert else "repeat_debounced",
                     "time_since_first_alert": time_elapsed,
-                    "dangerous_detections": len(dangerous_detections),
+                    "dangerous_detections": len(filtered_detections),
                     "time_since_voice_alert": time_since_voice_alert
                 }
             else:
@@ -246,7 +258,7 @@ class AlertManager:
                     "alert_sent": False,
                     "alert_type": "monitoring",
                     "time_since_first_alert": time_elapsed,
-                    "dangerous_detections": len(dangerous_detections),
+                    "dangerous_detections": len(filtered_detections),
                     "time_until_repeat": self.repeat_alert_delay - time_elapsed
                 }
         
@@ -258,18 +270,19 @@ class AlertManager:
                 "alert_sent": False,
                 "alert_type": "both_sent",
                 "time_since_first_alert": time_elapsed,
-                "dangerous_detections": len(dangerous_detections)
+                "dangerous_detections": len(filtered_detections)
             }
     
     def _handle_no_danger(self) -> Dict[str, Any]:
         """Handle when no danger is detected"""
         # Reset state if danger was previously active
         if self.danger_active:
-            print("\n✓ Danger cleared - Resetting alert state")
+            print("\n✓ Drowning behavior cleared - Person is safe or no longer detected")
             self.danger_active = False
             self.first_alert_time = None
             self.second_alert_sent = False
             self.last_dangerous_detections = []
+            self.last_drowning_analysis = None
         
         return {
             "danger_active": False,
@@ -278,18 +291,26 @@ class AlertManager:
             "dangerous_detections": 0
         }
     
-    def _send_alert(self, dangerous_detections: List[Dict[str, Any]], is_repeat: bool):
+    def _send_alert(self, dangerous_detections: List[Dict[str, Any]], drowning_analysis: Optional[Dict[str, Any]] = None, is_repeat: bool = False):
         """
-        Generate and send voice alert
+        Generate and send voice alert with severity-based voice selection
         
         Args:
             dangerous_detections: List of dangerous detection dictionaries
+            drowning_analysis: Optional drowning behavior analysis with risk level and indicators
             is_repeat: Whether this is a repeat alert
         """
         try:
-            # Generate alert message using LLM
+            # Extract severity from drowning_analysis
+            severity = "medium"  # default
+            if drowning_analysis:
+                severity = drowning_analysis.get("drowning_risk", "medium")
+                print(f"   Alert severity: {severity.upper()}")
+            
+            # Generate alert message using LLM with detailed person description
             alert_text = self.llm_service.generate_alert_message(
                 dangerous_detections,
+                drowning_analysis=drowning_analysis,
                 is_repeat=is_repeat
             )
             
@@ -298,13 +319,14 @@ class AlertManager:
                 print("⚠️  LLM generation failed, using fallback message")
                 alert_text = self.llm_service.get_fallback_message(is_repeat)
             
-            # Generate and play voice alert
+            # Generate and play voice alert with severity-based voice
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             alert_type = "repeat" if is_repeat else "first"
-            filename = f"alert_{alert_type}_{timestamp}.mp3"
+            filename = f"alert_{severity}_{alert_type}_{timestamp}.mp3"
             
             self.voice_service.generate_and_play(
                 text=alert_text,
+                severity=severity,
                 save=True,
                 play=True
             )
@@ -336,6 +358,7 @@ class AlertManager:
         self.first_alert_time = None
         self.second_alert_sent = False
         self.last_dangerous_detections = []
+        self.last_drowning_analysis = None
 
 
 # Example usage
