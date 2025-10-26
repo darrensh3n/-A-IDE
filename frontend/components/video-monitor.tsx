@@ -5,7 +5,7 @@ import type React from "react"
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Video, Camera, Loader2 } from "lucide-react"
+import { Video, Camera, Loader2, Upload } from "lucide-react"
 
 interface Detection {
   class: string
@@ -37,7 +37,7 @@ interface VideoMonitorProps {
 
 export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
   const [isProcessing, setIsProcessing] = useState(false)
-  const [videoSource, setVideoSource] = useState<"camera" | null>(null)
+  const [videoSource, setVideoSource] = useState<"camera" | "upload" | null>(null)
   const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isRealTimeEnabled, setIsRealTimeEnabled] = useState(false)
@@ -96,6 +96,52 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
     }
     setVideoSource(null)
     setIsRealTimeEnabled(false)
+  }
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Check if it's a video file
+    if (!file.type.startsWith('video/')) {
+      setError('Please select a video file')
+      return
+    }
+
+    setIsProcessing(true)
+    setError(null)
+    setVideoSource(null) // Clear camera source
+
+    try {
+      // First, display the uploaded video
+      const videoUrl = URL.createObjectURL(file)
+      if (videoRef.current) {
+        videoRef.current.src = videoUrl
+        videoRef.current.load()
+        setVideoSource("upload") // Set a custom source type
+      }
+
+      // Then process the video for detection
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('http://localhost:8000/api/detect-drowning', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) throw new Error('Video processing failed')
+
+      const result = await response.json()
+      setDetectionResult(result)
+      onDetectionResult?.(result)
+
+    } catch (error) {
+      console.error('Error processing video:', error)
+      setError('Failed to process video. Please try again.')
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   const captureFrame = useCallback(async () => {
@@ -280,6 +326,23 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
                 Start Camera
               </Button>
             )}
+            <div className="relative">
+              <input
+                type="file"
+                accept="video/*"
+                onChange={handleFileUpload}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                disabled={isProcessing}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isProcessing}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Upload Video
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -316,6 +379,33 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
             )}
           </div>
         </div>
+        )}
+
+      {videoSource === "upload" && (
+        <div className="border-b border-border bg-muted/30 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Video className="h-4 w-4" />
+                <span>Uploaded Video - Click play to view</span>
+              </div>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => {
+                if (videoRef.current) {
+                  videoRef.current.src = ""
+                  videoRef.current.load()
+                }
+                setVideoSource(null)
+                setDetectionResult(null)
+              }}
+            >
+              Clear Video
+            </Button>
+          </div>
+        </div>
       )}
 
       <div className="relative aspect-video bg-muted">
@@ -326,7 +416,7 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
             </div>
             <div className="text-center">
               <p className="font-medium text-foreground">No Video Source</p>
-              <p className="text-sm text-muted-foreground">Start camera to begin live monitoring</p>
+              <p className="text-sm text-muted-foreground">Start camera or upload a video to begin monitoring</p>
             </div>
           </div>
         )}
@@ -334,8 +424,8 @@ export function VideoMonitor({ onDetectionResult }: VideoMonitorProps) {
         <video 
           ref={videoRef} 
           className="h-full w-full object-contain" 
-          controls={false}
-          autoPlay
+          controls={videoSource === "upload"}
+          autoPlay={videoSource === "camera"}
           muted
         />
 

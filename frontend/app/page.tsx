@@ -15,6 +15,17 @@ interface DetectionResult {
   detections: Detection[]
   image: string
   timestamp: string
+  drowning_analysis?: {
+    drowning_risk: string
+    risk_score: number
+    indicators: string[]
+    people_detected: number
+  }
+  alert_status?: {
+    danger_active: boolean
+    alert_sent: boolean
+    alert_type: string
+  }
 }
 
 export default function Home() {
@@ -22,10 +33,41 @@ export default function Home() {
   const [totalDetections, setTotalDetections] = useState(0)
   const [criticalAlerts, setCriticalAlerts] = useState(0)
 
+  // Function to generate voice alert
+  const generateVoiceAlert = useCallback(async (alert: Alert) => {
+    try {
+      const response = await fetch('http://localhost:8000/api/generate-voice-alert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: alert.message,
+          alertType: alert.type,
+          detectionClass: alert.detectionClass,
+          confidence: alert.confidence,
+        }),
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log('Voice alert generated:', result.spoken_text)
+      } else {
+        console.error('Failed to generate voice alert:', response.statusText)
+      }
+    } catch (error) {
+      console.error('Error generating voice alert:', error)
+    }
+  }, [])
+
   const handleDetectionResult = useCallback((result: DetectionResult) => {
     // Filter detections to only count those with 80% confidence and above
     const highConfidenceDetections = result.detections.filter(detection => detection.confidence >= 0.8)
     setTotalDetections((prev) => prev + highConfidenceDetections.length)
+
+    // Get drowning analysis data
+    const drowningAnalysis = result.drowning_analysis
+    const alertStatus = result.alert_status
 
     // Create alerts for each high-confidence detection
     highConfidenceDetections.forEach((detection) => {
@@ -42,7 +84,22 @@ export default function Home() {
         setCriticalAlerts((prev) => prev + 1)
       } else if (isPerson && detection.confidence > 0.7) {
         alertType = "warning"
-        message = `Person detected in water - monitoring`
+        // Add behavior analysis info to person alerts
+        if (drowningAnalysis) {
+          const risk = drowningAnalysis.drowning_risk
+          const score = drowningAnalysis.risk_score
+          if (risk === "high") {
+            message = `🚨 Person struggling to swim (HIGH RISK - ${(score * 100).toFixed(0)}%)`
+            alertType = "critical"
+            setCriticalAlerts((prev) => prev + 1)
+          } else if (risk === "medium") {
+            message = `⚠️ Person showing signs of distress (MEDIUM RISK - ${(score * 100).toFixed(0)}%)`
+          } else {
+            message = `Person detected in water - monitoring (${risk} risk)`
+          }
+        } else {
+          message = `Person detected in water - monitoring`
+        }
       }
 
       const newAlert: Alert = {
@@ -56,8 +113,14 @@ export default function Home() {
       }
 
       setAlerts((prev) => [newAlert, ...prev].slice(0, 20)) // Keep last 20 alerts
+      
+      // Only generate voice alerts when there's actual struggling behavior
+      // (The backend will handle this, but we can also trigger from frontend if needed)
+      if (alertType === "critical" && drowningAnalysis?.drowning_risk === "high") {
+        generateVoiceAlert(newAlert)
+      }
     })
-  }, [])
+  }, [generateVoiceAlert])
 
   const handleClearAlert = useCallback((id: string) => {
     setAlerts((prev) => prev.filter((alert) => alert.id !== id))
@@ -106,7 +169,7 @@ export default function Home() {
             <VideoMonitor onDetectionResult={handleDetectionResult} />
           </div>
           <div className="space-y-6">
-            <AlertPanel alerts={alerts} onClearAlert={handleClearAlert} />
+            <AlertPanel alerts={alerts} onClearAlert={handleClearAlert} onVoiceAlert={generateVoiceAlert} />
             <DetectionStats
               totalDetections={totalDetections}
               criticalAlerts={criticalAlerts}

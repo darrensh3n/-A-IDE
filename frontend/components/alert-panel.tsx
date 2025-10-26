@@ -18,9 +18,10 @@ export interface Alert {
 interface AlertPanelProps {
   alerts: Alert[]
   onClearAlert?: (id: string) => void
+  onVoiceAlert?: (alert: Alert) => void
 }
 
-export function AlertPanel({ alerts, onClearAlert }: AlertPanelProps) {
+export function AlertPanel({ alerts, onClearAlert, onVoiceAlert }: AlertPanelProps) {
   const sortedAlerts = [...alerts].sort((a, b) => {
     if (a.status === "active" && b.status !== "active") return -1
     if (a.status !== "active" && b.status === "active") return 1
