@@ -22,27 +22,54 @@ def setup_model():
     models_dir = Path("models")
     models_dir.mkdir(exist_ok=True)
     
-    print("\n[1/3] Downloading YOLOv8n base model...")
+    print("\n[1/4] Downloading YOLOv8n base model...")
     try:
         # Download base YOLOv8n model
-        model = YOLO("yolov8n.pt")
-        print("✓ Base model downloaded successfully")
+        base_model_path = models_dir / "yolov8n.pt"
+        if not base_model_path.exists():
+            model = YOLO("yolov8n.pt")  # This will download if not exists
+            # Save to models directory
+            import shutil
+            shutil.move("yolov8n.pt", str(base_model_path))
+            print("✓ Base model downloaded successfully")
+        else:
+            print("✓ Base model already exists")
+        model = YOLO(str(base_model_path))
     except Exception as e:
         print(f"✗ Error downloading model: {e}")
         return
     
-    print("\n[2/3] Saving model to models directory...")
+    print("\n[2/4] Downloading YOLOv8n-pose model...")
+    try:
+        # Download pose estimation model
+        pose_model_path = models_dir / "yolov8n-pose.pt"
+        if not pose_model_path.exists():
+            pose_model = YOLO("yolov8n-pose.pt")  # This will download if not exists
+            # Save to models directory
+            import shutil
+            shutil.move("yolov8n-pose.pt", str(pose_model_path))
+            print("✓ Pose model downloaded successfully")
+        else:
+            print("✓ Pose model already exists")
+    except Exception as e:
+        print(f"✗ Error downloading pose model: {e}")
+        return
+    
+    print("\n[3/4] Setting up model...")
     try:
         model_path = models_dir / "drowning_detection.pt"
-        # Copy the downloaded model to our models directory
-        import shutil
-        shutil.copy("yolov8n.pt", str(model_path))
-        print(f"✓ Model saved to: {model_path}")
+        if not model_path.exists():
+            # Copy the downloaded model to our models directory
+            import shutil
+            shutil.copy(str(base_model_path), str(model_path))
+            print(f"✓ Model saved to: {model_path}")
+        else:
+            print("✓ Drowning detection model already exists")
     except Exception as e:
         print(f"✗ Error saving model: {e}")
         return
     
-    print("\n[3/3] Testing model...")
+    print("\n[4/4] Testing model...")
     try:
         # Test the model
         test_model = YOLO(str(model_path))

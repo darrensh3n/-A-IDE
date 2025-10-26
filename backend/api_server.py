@@ -59,12 +59,12 @@ def load_model():
         else:
             print("Custom model not found. Using YOLOv8n as fallback.")
             print("To use a custom drowning detection model, place it at:", MODEL_PATH)
-            model = YOLO("yolov8n.pt")  # Fallback to pretrained model
+            model = YOLO("models/yolov8n.pt")  # Fallback to pretrained model
         print("Model loaded successfully!")
         
         # Load YOLOv8 pose estimation model for distress detection
         print("Loading YOLOv8 pose estimation model...")
-        pose_model = YOLO("yolov8n-pose.pt")
+        pose_model = YOLO("models/yolov8n-pose.pt")
         print("✓ Pose estimation model loaded successfully!")
         
     except Exception as e:
