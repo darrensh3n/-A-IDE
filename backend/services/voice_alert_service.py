@@ -13,6 +13,9 @@ from fish_audio_sdk import Session, TTSRequest
 class VoiceAlertService:
     """Service for generating voice alerts using Fish Audio TTS"""
     
+    # Use a single consistent voice for all alerts
+    DEFAULT_VOICE = "612cd27c421042aab69225666a13879a"  # Consistent voice for all severity levels
+    
     def __init__(self, api_key: str, output_dir: str = "audio_alerts"):
         """
         Initialize the voice alert service
@@ -33,13 +36,13 @@ class VoiceAlertService:
             print(f"✗ Failed to initialize Fish Audio: {e}")
             self.session = None
     
-    def generate_audio(self, text: str, voice: str = "s1") -> Optional[bytes]:
+    def generate_audio(self, text: str, severity: str = "medium") -> Optional[bytes]:
         """
-        Generate audio from text using Fish Audio TTS
+        Generate audio from text using Fish Audio TTS with consistent voice
         
         Args:
             text: The text to convert to speech
-            voice: Voice model to use (default: "s1")
+            severity: Alert severity level (for logging purposes only, voice stays consistent)
             
         Returns:
             Audio data as bytes, or None if generation failed
@@ -49,12 +52,15 @@ class VoiceAlertService:
             return None
         
         try:
-            print(f"🎤 Generating audio: '{text}'")
+            # Use consistent voice for all alerts
+            reference_id = self.DEFAULT_VOICE
+            print(f"🎤 Generating audio (severity: {severity.upper()}): '{text}'")
+            print(f"   Using consistent voice reference: {reference_id}")
             
-            # Generate speech using Fish Audio
+            # Generate speech using Fish Audio with reference_id
             audio_chunks = []
             for chunk in self.session.tts(
-                TTSRequest(text=text, backend=voice)
+                TTSRequest(text=text, reference_id=reference_id)
             ):
                 audio_chunks.append(chunk)
             
@@ -131,20 +137,21 @@ class VoiceAlertService:
             print(f"✗ Error playing audio: {e}")
             return False
     
-    def generate_and_play(self, text: str, save: bool = True, play: bool = True) -> Optional[str]:
+    def generate_and_play(self, text: str, severity: str = "medium", save: bool = True, play: bool = True) -> Optional[str]:
         """
         Generate audio from text and optionally save/play it
         
         Args:
             text: The text to convert to speech
+            severity: Alert severity level (for logging/filename only, voice stays consistent)
             save: Whether to save the audio file
             play: Whether to play the audio
             
         Returns:
             Path to saved audio file if saved, None otherwise
         """
-        # Generate audio
-        audio_data = self.generate_audio(text)
+        # Generate audio with consistent voice
+        audio_data = self.generate_audio(text, severity=severity)
         if not audio_data:
             return None
         
