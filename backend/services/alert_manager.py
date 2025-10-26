@@ -53,6 +53,7 @@ class AlertManager:
         self.second_alert_sent = False
         self.last_dangerous_detections: List[Dict[str, Any]] = []
         self.last_alert_time: Optional[float] = None
+        self.last_voice_alert_time: Optional[float] = None  # Debounce for Fish Audio voice alerts
         
         print(f"✓ Alert Manager initialized (threshold: {confidence_threshold}, repeat delay: {repeat_alert_delay}s, live mode: {live_mode})")
     
@@ -133,9 +134,16 @@ class AlertManager:
         current_time = time.time()
         self.last_dangerous_detections = dangerous_detections
         
-        # Live mode: Send alert on every detection (with minimal throttling)
         if self.live_mode:
-            # Throttle alerts to prevent spam (minimum 1 second between alerts)
+            should_send_voice_alert = True
+            time_since_voice_alert = 0
+            
+            if self.last_voice_alert_time:
+                time_since_voice_alert = current_time - self.last_voice_alert_time
+                if time_since_voice_alert < 10.0:
+                    should_send_voice_alert = False
+            
+            # Throttle general alerts to prevent spam (minimum 1 second between alerts)
             if self.last_alert_time and (current_time - self.last_alert_time) < 1.0:
                 return {
                     "danger_active": True,
@@ -148,34 +156,51 @@ class AlertManager:
             print("\n🚨 LIVE ALERT - Person detected with drowning risk!")
             self.last_alert_time = current_time
             
-            # Generate and send alert
-            self._send_alert(dangerous_detections, is_repeat=False)
+            # Generate and send alert (with debounce check for Fish Audio)
+            if should_send_voice_alert:
+                self._send_alert(dangerous_detections, is_repeat=False)
+                self.last_voice_alert_time = current_time
+                print(f"   ✓ Voice alert sent (debounce: {time_since_voice_alert:.1f}s)")
+            else:
+                print(f"   ⏸️  Voice alert debounced ({time_since_voice_alert:.1f}s since last alert)")
             
             return {
                 "danger_active": True,
-                "alert_sent": True,
-                "alert_type": "live",
+                "alert_sent": should_send_voice_alert,
+                "alert_type": "live" if should_send_voice_alert else "live_debounced",
                 "time_since_last_alert": 0,
-                "dangerous_detections": len(dangerous_detections)
+                "dangerous_detections": len(dangerous_detections),
+                "time_since_voice_alert": time_since_voice_alert
             }
         
-        # Original logic for non-live mode
-        # Case 1: First danger detection - send immediate alert
         if not self.danger_active:
             print("\n⚠️  DANGER DETECTED - Sending first alert")
             self.danger_active = True
             self.first_alert_time = current_time
             self.second_alert_sent = False
             
-            # Generate and send first alert
-            self._send_alert(dangerous_detections, is_repeat=False)
+            should_send_voice_alert = True
+            time_since_voice_alert = 0
+            if self.last_voice_alert_time:
+                time_since_voice_alert = current_time - self.last_voice_alert_time
+                if time_since_voice_alert < 10.0:
+                    should_send_voice_alert = False
+            
+            # Generate and send first alert (only if debounce allows)
+            if should_send_voice_alert:
+                self._send_alert(dangerous_detections, is_repeat=False)
+                self.last_voice_alert_time = current_time
+                print(f"   ✓ Voice alert sent (debounce: {time_since_voice_alert:.1f}s)")
+            else:
+                print(f"   ⏸️  Voice alert debounced ({time_since_voice_alert:.1f}s since last alert)")
             
             return {
                 "danger_active": True,
-                "alert_sent": True,
-                "alert_type": "first",
+                "alert_sent": should_send_voice_alert,
+                "alert_type": "first" if should_send_voice_alert else "first_debounced",
                 "time_since_first_alert": 0,
-                "dangerous_detections": len(dangerous_detections)
+                "dangerous_detections": len(dangerous_detections),
+                "time_since_voice_alert": time_since_voice_alert
             }
         
         # Case 2: Danger persists - check if it's time for repeat alert
@@ -186,15 +211,29 @@ class AlertManager:
                 print(f"\n⚠️  DANGER PERSISTS ({time_elapsed:.1f}s) - Sending repeat alert")
                 self.second_alert_sent = True
                 
-                # Generate and send repeat alert
-                self._send_alert(dangerous_detections, is_repeat=True)
+                # Check debounce for voice alerts
+                should_send_voice_alert = True
+                time_since_voice_alert = 0
+                if self.last_voice_alert_time:
+                    time_since_voice_alert = current_time - self.last_voice_alert_time
+                    if time_since_voice_alert < 10.0:
+                        should_send_voice_alert = False
+                
+                # Generate and send repeat alert (only if debounce allows)
+                if should_send_voice_alert:
+                    self._send_alert(dangerous_detections, is_repeat=True)
+                    self.last_voice_alert_time = current_time
+                    print(f"   ✓ Voice alert sent (debounce: {time_since_voice_alert:.1f}s)")
+                else:
+                    print(f"   ⏸️  Voice alert debounced ({time_since_voice_alert:.1f}s since last alert)")
                 
                 return {
                     "danger_active": True,
-                    "alert_sent": True,
-                    "alert_type": "repeat",
+                    "alert_sent": should_send_voice_alert,
+                    "alert_type": "repeat" if should_send_voice_alert else "repeat_debounced",
                     "time_since_first_alert": time_elapsed,
-                    "dangerous_detections": len(dangerous_detections)
+                    "dangerous_detections": len(dangerous_detections),
+                    "time_since_voice_alert": time_since_voice_alert
                 }
             else:
                 # Still in danger but not time for repeat yet
